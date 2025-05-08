@@ -1,3 +1,4 @@
+import { error } from "console";
 import { Db, Filter, FindOptions, MongoClient, UpdateFilter } from "mongodb";
 
 interface ConnectionConfig {
@@ -6,7 +7,7 @@ interface ConnectionConfig {
 }
 
 const isObject = (obj: any): boolean => {
-	return obj && typeof obj === "object" && Object.keys(obj).length > 0;
+    return obj !== null && typeof obj === 'object' && !Array.isArray(obj);
 };
 
 export class MongoDbClient {
@@ -61,15 +62,22 @@ export class MongoDbClient {
 			throw new Error("MongoDbClient.InsertDocumentWithIndex: Document is not an object");
 		}
 		const index = await this.GetNextSequence(coll);
-		doc.idx = index.value?.seq;
+		doc.idx = index.seq;
 		return this.db.collection(coll).insertOne(doc);
+	}
+
+	async DeleteDocument(coll: string, query: object): Promise<any> {
+		if (!isObject(query)) {
+			throw new Error("MongoDbClient.DeleteDocument: query is not an object");
+		}
+		return this.db.collection(coll).deleteOne(query);
 	}
 
 	async ModifyOneDocument(coll: string, values: UpdateFilter<any>, query: object, option: object = {}) {
 		if (!isObject(values) && !isObject(query)) {
 			throw new Error("MongoDbClient.ModifyOneDocument: values and query should be object");
 		}
-		return this.db.collection(coll).updateOne(query,values,option)
+		return this.db.collection(coll).updateOne(query, values, option);
 	}
 
 	async close(force?: boolean): Promise<any> {

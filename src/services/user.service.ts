@@ -1,89 +1,192 @@
 import { FastifyRequest } from "fastify";
 import { generateToken } from "../plugins/jwt";
-import { User } from "../controllers/user.controller";
-import { db, GetData, insertRecord } from "../plugins/db";
+import { User, UserResponse } from "../controllers/user.controller";
 import { compareHash, hashPassword } from "../utils/hash";
-
+import { ObjectId } from "mongodb";
+import { mongoClient } from "../app";
 
 export class UserService {
+    private static readonly USERS_COLLECTION = 'users';
+    private static readonly COUNTERS_COLLECTION = 'counters';
 
-    static async deleteAccount(id: number) {
-        try {
-            const { result, status, error } = await insertRecord(db, 'DELETE FROM users WHERE id = ?', [id]);
-            if (error) { throw new Error(`Database error: ${error}`); };
-            if (status == 1) { return result; }
-            return null;
-        } catch (error) {
-            throw new Error("Failed to delete account")
+    static async deleteAccount(userId: string): Promise<boolean> {
+        if (!ObjectId.isValid(userId)) {
+            throw new Error("Invalid user ID format");
         }
-    };
-    static async toogleAccountStatus(id: number, newStatus: boolean) {
+
         try {
-            const { result, status, error } = await insertRecord(db, 'UPDATE users SET is_active = ? WHERE id = ?', [newStatus ? 1 : 0, id]);
-            if (error) { throw new Error(`Database error: ${error}`); };
-            if (status == 1) { return result; }
-            return null;
+            const result = await mongoClient.DeleteDocument(
+                this.USERS_COLLECTION,
+                { _id: new ObjectId(userId) }
+            );
+            return result.deletedCount === 1;
         } catch (error) {
-            throw new Error("Failed to update status")
+            console.error('Error deleting account:', error);
+            throw new Error("Failed to delete account");
         }
     }
 
-    static async getUserByID(id: number) {
+    static async toggleAccountStatus(userId: string, isActive: boolean): Promise<boolean> {
+        if (!ObjectId.isValid(userId)) {
+            throw new Error("Invalid user ID format");
+        }
+
         try {
-            const { result, status, error } = await GetData(db, 'SELECT id,name,email,role,bio,is_active, rating, created_at FROM users Where id = ?', [id]);
-            if (error) {
-                throw new Error(`${error}`);
+            const result = await mongoClient.ModifyOneDocument(
+                this.USERS_COLLECTION,
+                { $set: { is_active: isActive, updated_at: new Date() } },
+                { _id: new ObjectId(userId) }
+            );
+            return result.modifiedCount === 1;
+        } catch (error) {
+            console.error('Error toggling account status:', error);
+            throw new Error("Failed to update status");
+        }
+    }
+
+    static async getUserById(id: string): Promise<UserResponse | null> {
+        if (!ObjectId.isValid(id)) {
+            throw new Error("Invalid user ID format");
+        }
+
+        try {
+            const [user] = await mongoClient.FindDocFieldsByFilter(
+                this.USERS_COLLECTION,
+                { _id: new ObjectId(id) },
+                { password_hash: 0 }, // Exclude password from results
+                1
+            );
+            return user ? this.mapToUserResponse(user) : null;
+        } catch (error) {
+            console.error('Error fetching user:', error);
+            throw new Error("Failed to get user");
+        }
+    }
+
+    static async getUserByEmail(email: string): Promise<User | null> {
+        try {
+            const [user] = await mongoClient.FindDocFieldsByFilter(
+                this.USERS_COLLECTION,
+                { email },
+                {},
+                1
+            );
+            return user || null;
+        } catch (error) {
+            console.error('Error fetching user by email:', error);
+            throw new Error("Failed to get user by email");
+        }
+    }
+
+    static async createNewUser(userData: Omit<User, '_id'>): Promise<string> {
+        try {
+            const existingUser = await this.getUserByEmail(userData.email);
+            if (existingUser) {
+                throw new Error("Email already in use");
             }
-            return result as User;
-        }
-        catch (error) {
-            throw new Error("Failed to give account")
-        }
-    };
-    static async createNewUser(user: User) {
-        const { name, email, password_hash, role, bio } = user;
-        const hashed_password = await hashPassword(password_hash);
-        const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
-        try {
-            const { result, status, error } = await insertRecord(db, 'INSERT INTO users (name,email,password_hash,role,bio,rating,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)', [name, email, hashed_password, role, bio, 1, now, now]);
-        }
-        catch (error) {
+
+            const hashedPassword = await hashPassword(userData.password_hash);
+            const now = new Date();
+
+            const userDocument = {
+                ...userData,
+                password_hash: hashedPassword,
+                is_active: true,
+                last_login: now,
+                role: 'user',
+                created_at: now,
+                updated_at: now
+            };
+
+            const result = await mongoClient.InsertDocumentWithIndex(
+                this.USERS_COLLECTION,
+                userDocument
+            );
+
+            return result.insertedId.toString();
+        } catch (error) {
+            console.error("Error creating new user:", error);
             throw error;
         }
-    };
-    static async loginUser(email: string, password: string, req: FastifyRequest) {
+    }
+
+    static async loginUser(email: string, password: string, req: FastifyRequest): Promise<{ token: string; user: UserResponse }> {
         try {
-            const { result, status, error } = await GetData(db, 'SELECT * FROM users WHERE email = ?', [email])
-            if (error) { throw error };
-            if (status == 1) {
-                const user = result as User;
-                const isMatch = await compareHash(password, user.password_hash);
-                if (!isMatch) {
-                    throw new Error('Invalid credentials');
-                }
-                const tokenPayload = {
-                    id: user.id,
-                    email: user.email,
-                    role: user.role
-                };
-                const token = generateToken(tokenPayload, req);
-                return {
-                    token,
-                    user: {
-                        id: user.id,
-                        email: user.email,
-                        name: user.name,
-                        role: user.role,
-                        bio: user.bio,
-                        rating: user.rating,
-                        is_active: user.is_active
-                    }
-                };
+            const user = await this.getUserByEmail(email);
+            if (!user) {
+                throw new Error("User not found");
             }
-            throw new Error('User not found');
-        }
-        catch (error) {
+
+            const isMatch = await compareHash(password, user.password_hash);
+            if (!isMatch) {
+                throw new Error("Invalid credentials");
+            }
+
+            // Update last login
+            await mongoClient.FindOneAndUpdate(
+                this.USERS_COLLECTION,
+                { _id: user._id },
+                { last_login: new Date() }
+            );
+
+            const tokenPayload = {
+                id: user._id.toString(),
+                email: user.email,
+                role: user.role || 'user'
+            };
+
+            return {
+                token: generateToken(tokenPayload, req),
+                user: this.mapToUserResponse(user)
+            };
+        } catch (error) {
+            console.error('Login error:', error);
             throw error;
         }
-    };
+    }
+
+    static async getUsersPaginated(
+        page: number = 1,
+        limit: number = 10,
+        filter: object = {}
+    ): Promise<{ users: UserResponse[], total: number }> {
+        try {
+          const query = filter && typeof filter === 'object' ? filter : {};
+          console.log(typeof query);
+            const skip = (page - 1) * limit;
+            const users = await mongoClient.FindDocFieldsByFilter(
+                this.USERS_COLLECTION,
+                query,
+                { password_hash: 0 },
+                limit
+            );
+
+            const total = await mongoClient.getDocumentCountQuery(
+                this.USERS_COLLECTION,
+                query
+            );
+
+            return {
+                users: users.map(this.mapToUserResponse),
+                total
+            };
+        } catch (error) {
+            console.error('Error fetching paginated users:', error);
+            throw new Error("Failed to get users");
+        }
+    }
+
+    private static mapToUserResponse(user: any): UserResponse {
+        return {
+            _id: user._id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+            is_active: user.is_active,
+            last_login: user.last_login,
+            created_at: user.created_at,
+            updated_at: user.updated_at
+        };
+    }
 }
+

@@ -3,19 +3,32 @@ import { FastifyRoute } from "./utils/fastify-route";
 import fastifyCors from "@fastify/cors";
 import jwtPlugin from "./plugins/jwt";
 import { UserRoutes } from "./routes/user.route";
-import { ReviewRoute } from "./routes/review.route";
-import { CategoriesRoute } from "./routes/categories.route";
+import { MongoDbClient } from "./plugins/db";
+
 export const app = Fastify({
 	logger: true,
 });
-
+export const mongoClient = new MongoDbClient();
+const mongoConfig = {
+	url: "mongodb://localhost:27017",
+	dbName: "redux",
+};
 app.register(jwtPlugin);
-app.register(fastifyCors, { origin: '*' });
-
+app.register(fastifyCors, { origin: "*" });
+app.addHook("onReady", async () => {
+	await mongoClient.connect(
+		mongoConfig,
+		() => console.log("Connected to MongoDB successfully"),
+		error => console.error("MongoDB connection failed: ", error)
+	);
+});
+app.addHook("onClose", async () => {
+	await mongoClient.close();
+});
 FastifyRoute(
 	{
 		fastify: app,
 	},
-	[UserRoutes, ReviewRoute, CategoriesRoute],
+	[UserRoutes],
 	{ prefix: "/api/v1/" }
-)
+);

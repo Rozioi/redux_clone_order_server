@@ -1,83 +1,169 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { UserService } from "../services/user.service";
+import { ObjectId } from "mongodb";
 
-export interface User {
-    id?: number;
-    name: string;
-    email: string;
-    password_hash: string;
-    role: string;
-    bio?: string;
-    is_active?: boolean;
-    rating?: number;
-    created_at?: Date;
-    updated_at?: Date;
+export interface User extends UserRequest {
+  _id: ObjectId;
 }
 
+export interface UserRequest{
+  email: string;
+  name: string;
+  password_hash: string;
+  role?: string;
+  is_active?: boolean;
+  bio?: string;
+  rating?: number;
+  last_login?: Date;
+  created_at?: Date;
+  updated_at?: Date;
+}
 
+export interface UserResponse extends Omit<User, 'password_hash'> {
+    _id: ObjectId;
+}
 
 export const userController = {
-
-
-    async toogleAccountStatus(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
-        const id = parseInt(req.params.id);
-        if (isNaN(id)) {
-            return reply.status(400).send({ error: "Invalid parameters" });
-        }
-        const user = await UserService.getUserByID(id);
-        if (!user) {
-            return reply.status(404).send({ error: "User not found" });
-        }
-        const newStatus = !user.is_active;
-        await UserService.toogleAccountStatus(id, newStatus);
-        return reply.send({
-            message: `User account ${newStatus ? "activated" : "deactivated"} successfully.`,
-            newStatus
-        })
-    },
-    async deleteAccount(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
-        const id = parseInt(req.params.id);
-        if (isNaN(id)) {
-            return reply.status(400).send({ error: "Invalid parameters" });
-        }
-        const user = await UserService.getUserByID(id);
-        if (!user) {
-            return reply.status(404).send({ error: "User not found" });
-        }
-        await UserService.deleteAccount(id);
-        return reply.send({ message: "User deleted successfully" });
-    },
-    async getUserById(req: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
-        const id = parseInt(req.params.id);
-        if (isNaN(id)) {
-            return reply.status(400).send({ error: "Invalid parameters" });
-        }
-        const user = await UserService.getUserByID(id);
-        if (!user) {
-            reply.status(404).send('Not Found')
-        }
-        return reply.send(user);
-    },
-    async loginUser(req: FastifyRequest<{ Body: { email: string; password: string } }>, reply: FastifyReply) {
-        const { email, password } = req.body;
+    async toggleAccountStatus(
+        req: FastifyRequest<{ Params: { id: string }; Body: { is_active: boolean } }>, 
+        reply: FastifyReply
+    ) {
         try {
+            const { id } = req.params;
+            const { is_active } = req.body;
+            
+            if (!ObjectId.isValid(id)) {
+                return reply.status(400).send({ error: "Invalid user ID" });
+            }
+
+            const success = await UserService.toggleAccountStatus(id, is_active);
+            if (!success) {
+                return reply.status(404).send({ error: "User not found" });
+            }
+
+            return reply.send({
+                message: `User account ${is_active ? "activated" : "deactivated"} successfully.`,
+                is_active
+            });
+        } catch (error: unknown) {
+            const err = error as Error;
+            return reply.status(500).send({ error: err.message });
+        }
+    },
+
+    async deleteAccount(
+        req: FastifyRequest<{ Params: { id: string } }>, 
+        reply: FastifyReply
+    ) {
+        try {
+            const { id } = req.params;
+            
+            if (!ObjectId.isValid(id)) {
+                return reply.status(400).send({ error: "Invalid user ID" });
+            }
+
+            const success = await UserService.deleteAccount(id);
+            if (!success) {
+                return reply.status(404).send({ error: "User not found" });
+            }
+
+            return reply.send({ message: "User deleted successfully" });
+        } catch (error: unknown) {
+            const err = error as Error;
+            return reply.status(500).send({ error: err.message });
+        }
+    },
+
+    async getUserById(
+        req: FastifyRequest<{ Params: { id: string } }>, 
+        reply: FastifyReply
+    ) {
+        try {
+            const { id } = req.params;
+            
+            if (!ObjectId.isValid(id)) {
+                return reply.status(400).send({ error: "Invalid user ID" });
+            }
+
+            const user = await UserService.getUserById(id);
+            if (!user) {
+                return reply.status(404).send({ error: "User not found" });
+            }
+
+            return reply.send(user);
+        } catch (error: unknown) {
+            const err = error as Error;
+            return reply.status(500).send({ error: err.message });
+        }
+    },
+
+    async loginUser(
+        req: FastifyRequest<{ Body: { email: string; password: string } }>, 
+        reply: FastifyReply
+    ) {
+        try {
+            const { email, password } = req.body;
+            
+            if (!email || !password) {
+                return reply.status(400).send({ error: "Email and password are required" });
+            }
+
             const result = await UserService.loginUser(email, password, req);
-            return reply.status(200).send({ token: result?.token, user: result?.user });
-        } catch (error) {
-            return reply.status(500).send(error);
+            return reply.send({ 
+                token: result.token, 
+                user: result.user 
+            });
+        } catch (error: unknown) {
+            const err = error as Error;
+            return reply.status(401).send({ error: err.message });
         }
     },
-    async createNewUser(req: FastifyRequest<{ Body: User }>, reply: FastifyReply) {
-        const user = req.body;
+    async getUsersPaginated(
+        page: number,
+        limit: number
+    ): Promise<{ users: UserResponse[]; total: number }> {
         try {
-            await UserService.createNewUser(user);
-            return reply.send('User Created');
-        } catch (error) {
-            return reply.status(500).send('Internal Server Error');
+            const result = await UserService.getUsersPaginated(page, limit);
+            return result;
+        } catch (error: unknown) {
+            const err = error as Error;
+            throw err;
         }
     },
-    async token(req: FastifyRequest, reply: FastifyReply) {
-        return reply.send(req.server.jwt.sign({ id: 1 }));
-    }
+    async createNewUser(
+        req: FastifyRequest<{ Body: UserRequest }>, 
+        reply: FastifyReply
+    ) {
+        try {
+            const user = req.body;
+            
+            if (!user.email || !user.name || !user.password_hash) {
+                return reply.status(400).send({ error: "Missing required fields" });
+            }
 
+            const userId = await UserService.createNewUser(user);
+            return reply.status(201).send({ 
+                message: "User created successfully",
+                id: userId
+            });
+        } catch (error: unknown) {
+            const err = error as Error & { code?: number };
+            if (err.code === 11000) { // MongoDB duplicate key error
+                return reply.status(409).send({ error: "Email already exists" });
+            }
+            return reply.status(500).send({ error: err.message });
+        }
+    },
+
+    async verifyToken(
+        req: FastifyRequest, 
+        reply: FastifyReply
+    ) {
+        try {
+            return reply.send({ user: (req as any).user });
+        } catch (error: unknown) {
+            const err = error as Error;
+            return reply.status(401).send({ error: "Invalid token" });
+        }
+    }
 };
