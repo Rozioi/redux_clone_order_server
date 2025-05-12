@@ -3,13 +3,45 @@ import { userController } from "../controllers/user.controller";
 import { TRouteFunction } from "../utils/fastify-route";
 import { mongoClient } from "../app";
 import { ObjectId } from "mongodb";
+import { downloadFileFromGoogleDrive } from "../utils/diskToServer";
+import path from "path";
+import fs from "fs";
+import {Throttle}  from "stream-throttle";
+function convert(link: string): string {
+  const match = link.match(/(?:\/d\/|\/file\/d\/)([a-zA-Z0-9_-]{10,})/);
+  if (!match) return 'INVALID_LINK'; 
+  const fileId = match[1]; 
+  return `https://drive.google.com/uc?export=download&id=${fileId}`; 
+}
+
+
 
 export const UserRoutes: TRouteFunction = (fastify: FastifyInstance, _opts, done) => {
     fastify.get('/users/:id', { 
         preHandler: fastify.verifyJWT 
     }, userController.getUserById as any);
-
+  fastify.get('/download/:file', async (req:FastifyRequest<{Params: {file:string}}>, reply:FastifyReply) => {
+    const file = req.params.file;
+    const filePath = path.join(__dirname, '..', 'utils', 'mods', file);
+    console.log(filePath);
+     if (!fs.existsSync(filePath)) {
+       return reply.status(404).send('File not found');
+     }
+    const throttleRAte = 5 * 1024;
+    const fileStream = fs.createReadStream(filePath);
+    const throttleSteam = throttleRAte ? fileStream.pipe(new Throttle({ rate: throttleRAte })) : fileStream;
     
+    reply.header('content-type', 'application/zip');
+    reply.header('content-disposition', `attachment; filename="${file}"`);
+    return reply.send(throttleSteam);
+  });
+    fastify.post('/lo', async (req: FastifyRequest<{Body: {url: string}}>,reply: FastifyReply) => {
+      const driveLink = convert(req.body.url);
+      
+      console.log(driveLink);
+      await downloadFileFromGoogleDrive(driveLink, 'assad');
+      
+    })
     fastify.get('/users', {
             preHandler: fastify.verifyJWT,
             schema: {
