@@ -4,6 +4,7 @@ import fastifyCors from "@fastify/cors";
 import jwtPlugin from "./plugins/jwt";
 import { UserRoutes } from "./routes/user.route";
 import { MongoDbClient } from "./plugins/db";
+import { ModRoutes } from "./routes/mod.route";
 
 export const app = Fastify({
 	logger: true,
@@ -29,6 +30,6 @@ FastifyRoute(
 	{
 		fastify: app,
 	},
-	[UserRoutes],
+	[UserRoutes, ModRoutes],
 	{ prefix: "/api/v1/" }
 );

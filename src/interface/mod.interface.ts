@@ -39,6 +39,7 @@ export interface IModRequest {
   isVisibleDiscord: boolean;
   discord: string;
   archivePassword?: string;
+  userId: string | ObjectId; 
 }
 
 export interface IModResponse extends IMod {
