@@ -1,21 +1,35 @@
 import { ObjectId } from "mongodb";
-export interface User extends UserRequest {
+
+export interface IUser {
   _id: ObjectId;
-}
-
-export interface UserRequest{
-  email: string;
-  name: string;
+  username: string;
   password_hash: string;
-  role?: string;
-  is_active?: boolean;
-  bio?: string;
-  rating?: number;
-  last_login?: Date;
-  created_at?: Date;
-  updated_at?: Date;
+  email: string;
+  isActive: boolean;
+  role: 'user' | 'admin';
+  last_login: Date | null;
+  createdAt: Date;
 }
 
-export interface UserResponse extends Omit<User, 'password_hash'> {
-    _id: ObjectId;
+export interface IUserStats {
+  _id: ObjectId;
+  userId: ObjectId;
+  modCount: number;
+  ratingAverage: number | null;
+  totalMods: number;
+  approvedMods: number;
+  pendingMods: number;
+  rejectedMods: number;
+  rating: number;
 }
+
+export interface IUserRequest {
+  username: string;
+  email: string;
+  password: string;
+  role?: 'user' | 'admin';
+}
+
+export type IUserResponse = Omit<IUser, 'password_hash' | '_id'> & {
+  _id: string;
+};

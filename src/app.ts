@@ -1,35 +1,42 @@
-import Fastify, { fastify } from "fastify";
+import Fastify from "fastify";
 import { FastifyRoute } from "./utils/fastify-route";
 import fastifyCors from "@fastify/cors";
 import jwtPlugin from "./plugins/jwt";
 import { UserRoutes } from "./routes/user.route";
 import { MongoDbClient } from "./plugins/db";
 import { ModRoutes } from "./routes/mod.route";
+import { AdminRoutes } from "./routes/admin.route";
 
 export const app = Fastify({
 	logger: true,
 });
-export const mongoClient = new MongoDbClient();
-const mongoConfig = {
-	url: "mongodb://localhost:27017",
-	dbName: "redux",
-};
+
+app.register(fastifyCors, {
+	origin: '*',
+	methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+});
+
 app.register(jwtPlugin);
-app.register(fastifyCors, { origin: "*" });
-app.addHook("onReady", async () => {
-	await mongoClient.connect(
-		mongoConfig,
-		() => console.log("Connected to MongoDB successfully"),
-		error => console.error("MongoDB connection failed: ", error)
-	);
-});
-app.addHook("onClose", async () => {
-	await mongoClient.close();
-});
+
+export const mongoClient = new MongoDbClient();
+
+mongoClient.connect(
+	{
+		url: "mongodb://localhost:27017",
+		dbName: "mods",
+	},
+	() => {
+		console.log("Connected to MongoDB");
+	},
+	(error) => {
+		console.error("MongoDB connection error:", error);
+	}
+);
+
 FastifyRoute(
 	{
 		fastify: app,
 	},
-	[UserRoutes, ModRoutes],
+	[UserRoutes, ModRoutes, AdminRoutes],
 	{ prefix: "/api/v1/" }
 );

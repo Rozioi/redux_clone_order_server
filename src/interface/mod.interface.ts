@@ -6,6 +6,7 @@ export interface IMod {
   description: string;
   previewLink: string;
   fileLink: string;
+  isLocalState: boolean;
   localPreviewPath: string;
   localFilePath: string;
   youtubeLink?: string;
@@ -23,7 +24,12 @@ export interface IMod {
   discord: string;
   archivePassword?: string;
   createdAt?: Date | string;
-  userId: string | ObjectId; 
+  is_moderated: boolean;
+  userId: string | ObjectId;
+  status: 'pending' | 'approved' | 'rejected';
+  updatedAt?: Date;
+  requiresSubscription?: boolean;
+  subscriptionId?: string;
 }
 
 export interface IModRequest {
@@ -40,6 +46,8 @@ export interface IModRequest {
   discord: string;
   archivePassword?: string;
   userId: string | ObjectId; 
+  requiresSubscription?: boolean;
+  subscriptionId?: string;
 }
 
 export interface IModResponse extends IMod {

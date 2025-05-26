@@ -1,13 +1,19 @@
 import { FastifyRequest } from "fastify";
 import { generateToken } from "../plugins/jwt";
-import { User, UserResponse } from "../controllers/user.controller";
+import { UserRequest, UserResponse } from "../controllers/user.controller";
 import { compareHash, hashPassword } from "../utils/hash";
-import { ObjectId } from "mongodb";
+import { ClientSession, ObjectId } from "mongodb";
 import { mongoClient } from "../app";
+import { IUser, IUserRequest, IUserResponse, IUserStats } from "../interface/user.interface";
+
+import bcrypt from "bcrypt";
+type UserRole = 'user' | 'admin';
 
 export class UserService {
     private static readonly USERS_COLLECTION = 'users';
+    private static readonly STATS_COLLECTION = 'user_stats';
     private static readonly COUNTERS_COLLECTION = 'counters';
+    private static readonly SALT_ROUNDS = 12;
 
     static async deleteAccount(userId: string): Promise<boolean> {
         if (!ObjectId.isValid(userId)) {
@@ -34,7 +40,7 @@ export class UserService {
         try {
             const result = await mongoClient.ModifyOneDocument(
                 this.USERS_COLLECTION,
-                { $set: { is_active: isActive, updated_at: new Date() } },
+                { $set: { isActive, updated_at: new Date() } },
                 { _id: new ObjectId(userId) }
             );
             return result.modifiedCount === 1;
@@ -44,30 +50,29 @@ export class UserService {
         }
     }
 
-    static async getUserById(id: string): Promise<UserResponse | null> {
+    static async getUserById(id: string): Promise<IUserResponse | null> {
         if (!ObjectId.isValid(id)) {
             throw new Error("Invalid user ID format");
         }
 
         try {
-            const [user] = await mongoClient.FindDocFieldsByFilter(
+            const [result] = await mongoClient.FindDocFieldsByFilter(
                 this.USERS_COLLECTION,
                 { _id: new ObjectId(id) },
-                { password_hash: 0 }, // Exclude password from results
-                1
+                { password_hash: 0 }
             );
-            return user ? this.mapToUserResponse(user) : null;
+            return result || null;
         } catch (error) {
-            console.error('Error fetching user:', error);
-            throw new Error("Failed to get user");
+            console.error('Failed to get user', error);
+            throw new Error('Failed getting user');
         }
     }
 
-    static async getUserByEmail(email: string): Promise<User | null> {
+    static async getUserByEmail(email: string): Promise<IUser | null> {
         try {
             const [user] = await mongoClient.FindDocFieldsByFilter(
                 this.USERS_COLLECTION,
-                { email },
+                { email: email },
                 {},
                 1
             );
@@ -78,115 +83,175 @@ export class UserService {
         }
     }
 
-    static async createNewUser(userData: Omit<User, '_id'>): Promise<string> {
+    static async getUserByField<K extends keyof IUser>(
+        field: K, 
+        value: IUser[K],
+        limit: number = 1
+    ): Promise<IUser | null> {
         try {
-            const existingUser = await this.getUserByEmail(userData.email);
-            if (existingUser) {
-                throw new Error("Email already in use");
-            }
+            const users = await mongoClient.FindDocFieldsByFilter(
+                this.USERS_COLLECTION,
+                { [field]: value }, 
+                {},
+                limit
+            );
+            return users[0] || null; 
+        } catch (error) {
+            console.error(`Error fetching user by ${field}:`, error);
+            throw new Error(`Failed to get user by ${field}`);
+        }
+    }
 
-            const hashedPassword = await hashPassword(userData.password_hash);
-            const now = new Date();
-
-            const userDocument = {
-                ...userData,
-                password_hash: hashedPassword,
-                is_active: true,
-                last_login: now,
-                role: 'user',
-                created_at: now,
-                updated_at: now
+    static async getUsersPaginated(page: number, limit: number): Promise<{ users: UserResponse[]; total: number }> {
+        try {
+            const skip = (page - 1) * limit;
+            const users = await mongoClient.FindDocFieldsByFilter(
+                this.USERS_COLLECTION,
+                {},
+                { password_hash: 0 },
+                limit,
+                skip
+            );
+            const total = await mongoClient.getDocumentCountQuery(this.USERS_COLLECTION, {});
+            
+            return {
+                users: users.map((user: IUser) => ({
+                    _id: user._id.toString(),
+                    username: user.username,
+                    email: user.email,
+                    role: user.role,
+                    isActive: user.isActive,
+                    last_login: user.last_login,
+                    createdAt: user.createdAt
+                })),
+                total
             };
+        } catch (error) {
+            console.error('Failed to get paginated users:', error);
+            throw error;
+        }
+    }
 
+    static async createUser(data: IUserRequest): Promise<string> {
+        try {
+            const hashedPassword = await bcrypt.hash(data.password, this.SALT_ROUNDS);
+    
+            const userDocument: Omit<IUser, '_id'> = {
+                username: data.username,
+                password_hash: hashedPassword,
+                email: data.email,
+                isActive: true,
+                role: 'user',
+                last_login: null,
+                createdAt: new Date()
+            };
+    
             const result = await mongoClient.InsertDocumentWithIndex(
                 this.USERS_COLLECTION,
                 userDocument
             );
-
+    
+            if (!result.insertedId) {
+                throw new Error('Failed to create user');
+            }
+    
+            const userStats: Omit<IUserStats, '_id'> = {
+                userId: result.insertedId,
+                ratingAverage: null,
+                modCount: 0,
+                totalMods: 0,
+                approvedMods: 0,
+                pendingMods: 0,
+                rejectedMods: 0,
+                rating: 0
+            };
+    
+            await mongoClient.InsertDocumentWithIndex(
+                this.STATS_COLLECTION,
+                userStats
+            );
+    
             return result.insertedId.toString();
+    
         } catch (error) {
-            console.error("Error creating new user:", error);
+            console.error('Failed to create user:', error);
             throw error;
         }
     }
 
-    static async loginUser(email: string, password: string, req: FastifyRequest): Promise<{ token: string; user: UserResponse }> {
+
+    static async updateModStats(userId: string, status: 'pending' | 'approved' | 'rejected'): Promise<boolean> {
+        if (!ObjectId.isValid(userId)) {
+            throw new Error("Invalid user ID format");
+        }
         try {
-            const user = await this.getUserByEmail(email);
-            if (!user) {
-                throw new Error("User not found");
+            const updateQuery: any = {
+                $inc: {
+                    'totalMods': 1
+                }
+            };
+
+            switch (status) {
+                case 'pending':
+                    updateQuery.$inc['pendingMods'] = 1;
+                    break;
+                case 'approved':
+                    updateQuery.$inc['approvedMods'] = 1;
+                    updateQuery.$inc['pendingMods'] = -1;
+                    break;
+                case 'rejected':
+                    updateQuery.$inc['rejectedMods'] = 1;
+                    updateQuery.$inc['pendingMods'] = -1;
+                    break;
             }
 
-            const isMatch = await compareHash(password, user.password_hash);
-            if (!isMatch) {
-                throw new Error("Invalid credentials");
-            }
-
-            // Update last login
-            await mongoClient.FindOneAndUpdate(
-                this.USERS_COLLECTION,
-                { _id: user._id },
-                { last_login: new Date() }
+            const result = await mongoClient.ModifyOneDocument(
+                this.STATS_COLLECTION,
+                updateQuery,
+                { userId: new ObjectId(userId) }
             );
 
-            const tokenPayload = {
-                id: user._id.toString(),
-                email: user.email,
-                role: user.role || 'user'
-            };
-
-            return {
-                token: generateToken(tokenPayload, req),
-                user: this.mapToUserResponse(user)
-            };
+            return result.modifiedCount > 0;
         } catch (error) {
-            console.error('Login error:', error);
-            throw error;
+            console.error('Failed to update mod stats', error);
+            throw new Error('Failed updating mod stats');
         }
     }
 
-    static async getUsersPaginated(
-        page: number = 1,
-        limit: number = 10,
-        filter: object = {}
-    ): Promise<{ users: UserResponse[], total: number }> {
+    static async getUserModStats(userId: string): Promise<IUserStats | null> {
+        if (!ObjectId.isValid(userId)) {
+            throw new Error("Invalid user ID format");
+        }
         try {
-          const query = filter && typeof filter === 'object' ? filter : {};
-          console.log(typeof query);
-            const skip = (page - 1) * limit;
-            const users = await mongoClient.FindDocFieldsByFilter(
-                this.USERS_COLLECTION,
-                query,
-                { password_hash: 0 },
-                limit
+            const [result] = await mongoClient.FindDocFieldsByFilter(
+                this.STATS_COLLECTION,
+                { userId: new ObjectId(userId) }
             );
-
-            const total = await mongoClient.getDocumentCountQuery(
-                this.USERS_COLLECTION,
-                query
-            );
-
-            return {
-                users: users.map(this.mapToUserResponse),
-                total
-            };
+            return result || null;
         } catch (error) {
-            console.error('Error fetching paginated users:', error);
-            throw new Error("Failed to get users");
+            console.error('Failed to get user mod stats', error);
+            throw new Error('Failed getting user mod stats');
         }
     }
 
-    private static mapToUserResponse(user: any): UserResponse {
-        return {
-            _id: user._id,
-            email: user.email,
-            name: user.name,
-            role: user.role,
-            is_active: user.is_active,
-            last_login: user.last_login,
-            created_at: user.created_at,
-            updated_at: user.updated_at
-        };
+    static async updateUserRole(userId: string, role: UserRole): Promise<boolean> {
+        try {
+            const result = await mongoClient.ModifyOneDocument(
+                this.USERS_COLLECTION,
+                { 
+                    $set: { 
+                        role,
+                        updated_at: new Date()
+                    }
+                },
+                { _id: new ObjectId(userId) }
+            );
+
+            return result.modifiedCount === 1;
+        } catch (error) {
+            console.error('Ошибка при обновлении роли пользователя:', error);
+            throw new Error('Не удалось обновить роль пользователя');
+        }
     }
 }
 

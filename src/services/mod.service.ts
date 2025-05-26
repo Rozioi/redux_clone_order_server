@@ -14,6 +14,7 @@ export class ModService {
         previewLink: data.previewLink || '',
         fileLink: data.fileLink,
         localPreviewPath: data.localPreviewPath || '',
+        isLocalState: false,
         localFilePath: 'mods',
         youtubeLink: data.youtubeLink || '',
         categories: data.categories || [],
@@ -27,13 +28,19 @@ export class ModService {
         discord: data.discord || '',
         archivePassword: data.archivePassword || '',
         createdAt: new Date(),
-        userId: data.userId
+        status: 'pending',
+        is_moderated: false,
+        userId: new ObjectId(data.userId)
       };
       
       const result = await mongoClient.InsertDocumentWithIndex(this.MODS_COLLECTION, modDocument)
       if (!result.insertedId.toString()){
         throw new Error('Failed create mod');
       }
+
+      // Обновляем статистику пользователя
+      await UserService.updateModStats(data.userId.toString(), 'pending');
+      
       return result.insertedId.toString();
     } catch (error){
       console.error('Failed create mod', error);
@@ -79,6 +86,107 @@ export class ModService {
     } catch(error){
       console.error('Failed to delete mod', error);
       throw new Error('Failed to delete mod by id');
+    }
+  }
+
+  // Новые методы для модерации
+  static async getPendingMods(): Promise<IModResponse[]> {
+    try {
+      const result = await mongoClient.FindDocFieldsByFilter(
+        this.MODS_COLLECTION,
+        { status: 'pending' }
+      );
+      return result;
+    } catch (error) {
+      console.error('Failed to get pending mods', error);
+      throw new Error('Failed getting pending mods');
+    }
+  }
+  static async updateStatsMod(id:string , param: string,operation: 'add' | 'remove' = 'add'): Promise<boolean>{
+    if (!ObjectId.isValid(id)){
+      throw new Error("Invalid mod id format");
+    };
+    try{
+      const mod = await this.GetModById(id);
+      if (!mod) throw new Error("Invalid mod ID format");
+      const update = operation === 'add' 
+          ? { $inc: { [param]: 1 } } 
+          : { $inc: { [param]: -1 } };
+
+      const result = await mongoClient.ModifyOneDocument(this.MODS_COLLECTION, update, { _id: new ObjectId(id) });
+      if (result.modifiedCount > 0){
+        return true;
+      }
+      return false;
+    } catch(error){
+      console.error('Failed to update stats ', error);
+      throw new Error('Failed to update stats');
+    }
+  }
+  static async approveMod(id: string): Promise<boolean> {
+    if (!ObjectId.isValid(id)) {
+      throw new Error("Invalid mod ID format");
+    }
+    try {
+      const mod = await this.GetModById(id);
+      if (!mod) throw new Error('Mod not found');
+
+      const result = await mongoClient.ModifyOneDocument(
+        this.MODS_COLLECTION,
+        { $set: { status: 'approved', is_moderated: true } },
+        { _id: new ObjectId(id) }
+      );
+
+      if (result.modifiedCount > 0) {
+        await UserService.updateModStats(mod.userId.toString(), 'approved');
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to approve mod', error);
+      throw new Error('Failed approving mod');
+    }
+  }
+
+  static async rejectMod(id: string): Promise<boolean> {
+    if (!ObjectId.isValid(id)) {
+      throw new Error("Invalid mod ID format");
+    }
+    try {
+      const mod = await this.GetModById(id);
+      if (!mod) throw new Error('Mod not found');
+
+      const result = await mongoClient.ModifyOneDocument(
+        this.MODS_COLLECTION,
+        { $set: { status: 'rejected', is_moderated: true } },
+        { _id: new ObjectId(id) }
+      );
+
+      if (result.modifiedCount > 0) {
+        // Обновляем статистику пользователя
+        await UserService.updateModStats(mod.userId.toString(), 'rejected');
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Failed to reject mod', error);
+      throw new Error('Failed rejecting mod');
+    }
+  }
+
+  static async GetModsByUserId(userId: string): Promise<IModResponse[]> {
+    if (!ObjectId.isValid(userId)) {
+      throw new Error("Invalid user ID format");
+    }
+    try {
+      const result = await mongoClient.FindDocFieldsByFilter(
+        this.MODS_COLLECTION,
+        { userId: new ObjectId(userId) }
+      );
+      return result;
+    } catch (error) {
+      console.error('Failed to get user mods', error);
+      throw new Error('Failed getting user mods');
     }
   }
 }
