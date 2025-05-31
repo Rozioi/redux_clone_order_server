@@ -127,6 +127,7 @@ export const ModController = {
       if (!result) return reply.status(404).send('Invalid to delete mod')
       
     } catch(error){
+      
       const err = error as Error;
       return reply.status(500).send({ error: err });
     }

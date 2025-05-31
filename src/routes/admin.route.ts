@@ -35,6 +35,7 @@ export const AdminRoutes: TRouteFunction = (fastify: FastifyInstance, _opts, don
   }, adminController.createCategory);
 
   fastify.get('/categories', adminController.getAllCategories as any);
+  fastify.get('/category/:id', adminController.getCategoryById  as any)
 
   // fastify.put<AuthenticatedRouteGeneric & { 
   //   Params: CategoryParams;

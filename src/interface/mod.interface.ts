@@ -40,7 +40,7 @@ export interface IModRequest {
   localPreviewPath?: string;
   localFilePath?: string;
   youtubeLink?: string;
-  categories?: string[]; 
+  categoryIds?: string[]; 
   size: string;
   isVisibleDiscord: boolean;
   discord: string;

@@ -17,7 +17,7 @@ export class ModService {
         isLocalState: false,
         localFilePath: 'mods',
         youtubeLink: data.youtubeLink || '',
-        categories: data.categories || [],
+        categories: data.categoryIds || [],
         rating: {
           like: 0,
           dislike: 0,
@@ -37,9 +37,7 @@ export class ModService {
       if (!result.insertedId.toString()){
         throw new Error('Failed create mod');
       }
-
-      // Обновляем статистику пользователя
-      await UserService.updateModStats(data.userId.toString(), 'pending');
+      await UserService.updateModStats(data.userId.toString(),'pending');
       
       return result.insertedId.toString();
     } catch (error){

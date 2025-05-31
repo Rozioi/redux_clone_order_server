@@ -12,6 +12,7 @@ import { AdminService } from "../services/admin.service";
 import { AuthenticatedUser } from "../interface/request.interface";
 import bcrypt from "bcrypt";
 import { IAdmin } from "../interface/admin.interface";
+import { isValid } from "zod";
 
 interface CategoryParams {
   id: string;
@@ -211,7 +212,21 @@ export const adminController = {
       return reply.status(500).send({ message: 'Failed to get categories' });
     }
   },
-
+  async getCategoryById(
+    req: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply
+  ) {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return reply.status(400).send({ error: "Invalid user ID" });
+    }
+    try {
+      const categories = await CategoryService.getCategoryById(id);
+      return reply.send(categories);
+    } catch (error) {
+      return reply.status(500).send({ message: 'Failed to get categories' });
+    }
+  },
   // async updateCategory(
   //   req: FastifyRequest<{ Params: CategoryParams; Body: Partial<ICategoryRequest> }>,
   //   reply: FastifyReply
