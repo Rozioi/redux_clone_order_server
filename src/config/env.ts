@@ -5,7 +5,6 @@ import { z } from "zod";
 const envPath = path.resolve(__dirname, "../../.env");
 dotenv.config({ path: envPath });
 
-
 const envSchema = z.object({
   PORT: z.string().min(1).default('8000'),
   SALT_ROUNDS: z.string().min(1).default('10'),
@@ -17,15 +16,22 @@ const envSchema = z.object({
   SMTP_PASSWORD: z.string().min(1),
   SMTP_FROM_EMAIL: z.string().email(),
   
-  // Дополнительные параметры (можно добавить другие)
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   DATABASE_URL: z.string().url().optional(),
-  // Конфигурация администратора
+  
   ADMIN_EMAIL: z.string().email().optional(),
-  ADMIN_PASSWORD: z.string().min(1).optional()
+  ADMIN_PASSWORD: z.string().min(1).optional(),
+  
+  APP_NAME: z.string().min(1).optional(),
+  
+  // Исправлено: добавлены скобки для min()
+  SHOP_ID_YOUKASSA: z.string().min(1).optional(),
+  SECRET_KEY_YOUKASSA: z.string().min(1).optional(),
+    SERVER_URL: z.string().min(1),
+  PAYMENT_SUCCESS_REDIRECT_URL: z.string().url().optional(),
+  PAYMENT_FAILURE_REDIRECT_URL: z.string().url().optional()
 });
 
-// Валидация переменных окружения
 const env = envSchema.safeParse(process.env);
 
 if (!env.success) {
@@ -34,9 +40,7 @@ if (!env.success) {
   process.exit(1);
 }
 
-// Преобразование типов
 const config = {
-  // Базовые настройки
   PORT: parseInt(env.data.PORT, 10),
   SALT_ROUNDS: parseInt(env.data.SALT_ROUNDS, 10),
   JWT_SECRET: env.data.JWT_SECRET,
@@ -48,12 +52,26 @@ const config = {
     password: env.data.SMTP_PASSWORD,
     from: env.data.SMTP_FROM_EMAIL
   },
+  
   NODE_ENV: env.data.NODE_ENV,
   DATABASE_URL: env.data.DATABASE_URL,
-  // Конфигурация администратора
+  
   ADMIN: {
     EMAIL: env.data.ADMIN_EMAIL,
     PASSWORD: env.data.ADMIN_PASSWORD
+  },
+  
+  APP_NAME: env.data.APP_NAME,
+  
+  // Исправлено: SECKET_KEY -> SECRET_KEY
+  YOUKASSA: {
+    SECRET_KEY: env.data.SECRET_KEY_YOUKASSA,
+    SHOP_ID: env.data.SHOP_ID_YOUKASSA
+  },
+  SERVER_URL: env.data.SERVER_URL,
+  PAYMENT: {
+    SUCCESS_REDIRECT_URL: env.data.PAYMENT_SUCCESS_REDIRECT_URL || 'http://localhost:3000/payment/success',
+    FAILURE_REDIRECT_URL: env.data.PAYMENT_FAILURE_REDIRECT_URL || 'http://localhost:3000/payment/failure'
   }
 };
 

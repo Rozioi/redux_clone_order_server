@@ -26,21 +26,42 @@ export const UserRoutes: TRouteFunction = (fastify: FastifyInstance, _opts, done
     fastify.get('/users/:id', { 
         preHandler: fastify.verifyJWT 
     }, userController.getUserById as any);
-
-    fastify.get('/download/:file', async (req:FastifyRequest<{Params: {file:string}}>, reply:FastifyReply) => {
+  fastify.get('/users/search/:identifier', {
+    // preHandler: fastify.verifyJWT 
+  }, userController.getUserByIdOrUsername as any);
+    fastify.get('/users/stats/:id', { 
+        // preHandler: fastify.verifyJWT 
+    }, userController.getUserStatsById as any);
+    fastify.get('/download/:file', async (req:FastifyRequest<{Params: {file:string}, Querystring: {speed?: string}}>, reply:FastifyReply) => {
         const file = req.params.file;
+        const speed = parseInt(req.query.speed || '0');
         const filePath = path.join(__dirname, '..', 'utils', 'mods', file);
-        console.log(filePath);
+        
         if (!fs.existsSync(filePath)) {
             return reply.status(404).send('File not found');
         }
-        const throttleRAte = 5 * 1024;
+
+        // Конвертируем МБ/с в байты/с (1 МБ = 1024 * 1024 байт)
+        const throttleRate = speed * 1024 * 1024;
+        console.log(`Ограничение скорости: ${speed} МБ/с (${throttleRate} байт/с)`);
+
         const fileStream = fs.createReadStream(filePath);
-        const throttleSteam = throttleRAte ? fileStream.pipe(new Throttle({ rate: throttleRAte })) : fileStream;
+        
+        // Применяем ограничение скорости только если оно задано
+        const throttleStream = throttleRate > 0 
+            ? fileStream.pipe(new Throttle({ rate: throttleRate }))
+            : fileStream;
         
         reply.header('content-type', 'application/zip');
         reply.header('content-disposition', `attachment; filename="${file}"`);
-        return reply.send(throttleSteam);
+        
+        // Добавляем обработку ошибок
+        throttleStream.on('error', (error: Error) => {
+            console.error('Ошибка при скачивании файла:', error);
+            reply.status(500).send('Ошибка при скачивании файла');
+        });
+
+        return reply.send(throttleStream);
     });
 
     // Загрузка мода на сервер
@@ -56,7 +77,7 @@ export const UserRoutes: TRouteFunction = (fastify: FastifyInstance, _opts, done
             }
 
             const fileName = `${modId}.zip`;
-            await downloadFileFromGoogleDrive(driveLink, fileName);
+            await downloadFileFromGoogleDrive(driveLink);
             
             return reply.send({ 
                 message: 'Mod downloaded successfully',
@@ -89,7 +110,23 @@ export const UserRoutes: TRouteFunction = (fastify: FastifyInstance, _opts, done
             return reply.status(500).send({ error: 'Internal Server Error' });
         }
     });
-
+    
+    fastify.get('/badge/:userId', async (req:FastifyRequest<{Params: {userId: string}}>,reply:FastifyReply) => {
+      const id = req.params.userId;
+      console.log(id);
+      const result = await mongoClient.FindDocFieldsByFilter('badges', {userID: new ObjectId(id)});
+      reply.status(200).send(result);
+    })
+    fastify.get('/badges', async (req:FastifyRequest, reply:FastifyReply) => {
+      const result = await mongoClient.FindDocFieldsByFilter('badges', {});
+      reply.status(200).send(result);
+    })
+    fastify.delete('/badge/:userId', async (req:FastifyRequest<{Params: {userId: string}}>,reply) => {
+      const id = req.params.userId;
+      console.log(id);
+      const result = await mongoClient.DeleteDocument('badges', {userID: new ObjectId(id)});
+      reply.status(200).send(result);
+    })
     fastify.post('/auth/register', userController.createNewUser);
 
     fastify.put('/users/:id/status', { 
@@ -97,14 +134,44 @@ export const UserRoutes: TRouteFunction = (fastify: FastifyInstance, _opts, done
     }, userController.toggleAccountStatus as any);
 
     fastify.delete('/users/:id', { 
-        preHandler: fastify.verifyJWT 
+        // preHandler: fastify.verifyJWT 
     }, userController.deleteAccount as any);
-
+  fastify.get('/users/p/:id', async (req: FastifyRequest<{Params: {id:string}}>, reply) => {
+    
+    const res = await mongoClient.FindDocFieldsByFilter('admins', {})
+    return res;
+    });
     fastify.post('/auth/login', userController.loginUser);
+    fastify.post('/admin/verify', userController.verifyAdminLogin as any);
 
     fastify.get('/users/verify', { 
         preHandler: fastify.verifyJWT 
     }, userController.verifyToken);
+
+    // Добавляем эндпоинт для получения настроек подписки
+    fastify.get('/subscription/settings', async (req: FastifyRequest, reply: FastifyReply) => {
+        try {
+            // Получаем настройки из базы данных
+            const settings = await mongoClient.FindDocFieldsByFilter('subscription_settings', {});
+            
+            if (!settings || settings.length === 0) {
+                // Если настроек нет, возвращаем дефолтные значения
+                return reply.send({
+                    downloadQuota: {
+                        free: 0.5,    // 0.5 МБ/с
+                        basic: 1,     // 1 МБ/с
+                        medium: 5,    // 5 МБ/с
+                        premium: 10   // 10 МБ/с
+                    }
+                });
+            }
+
+            return reply.send(settings[0]);
+        } catch (error) {
+            console.error('Error fetching subscription settings:', error);
+            return reply.status(500).send({ error: 'Failed to fetch subscription settings' });
+        }
+    });
 
     done();
 };

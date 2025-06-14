@@ -1,10 +1,12 @@
 import { ObjectId } from "mongodb";
 import { mongoClient } from "../app";
-import { IModRequest, IModResponse } from "../interface/mod.interface";
+import { ICommentsRequest, IModRequest, IModResponse } from "../interface/mod.interface";
 import { UserService } from "./user.service";
+import { downloadFileFromCloud, downloadFileFromGoogleDrive } from "../utils/diskToServer";
 
 export class ModService {
   private static readonly MODS_COLLECTION = 'mods';
+  private static readonly COMMENTS_COLLECTION = 'comments';
   
   static async CreateMod(data: IModRequest):Promise<string> {
     try{
@@ -17,7 +19,7 @@ export class ModService {
         isLocalState: false,
         localFilePath: 'mods',
         youtubeLink: data.youtubeLink || '',
-        categories: data.categories || [],
+        categories: data.categoryIds || [],
         rating: {
           like: 0,
           dislike: 0,
@@ -37,9 +39,7 @@ export class ModService {
       if (!result.insertedId.toString()){
         throw new Error('Failed create mod');
       }
-
-      // Обновляем статистику пользователя
-      await UserService.updateModStats(data.userId.toString(), 'pending');
+      await UserService.updateModStats(data.userId.toString(),'pending');
       
       return result.insertedId.toString();
     } catch (error){
@@ -57,6 +57,17 @@ export class ModService {
       throw new Error('Failed geting mods')
     }
   };
+  static async GetAllModsForUser(): Promise<string | IModResponse[]>{
+    try{
+      const result = await mongoClient.FindDocFieldsByFilter(this.MODS_COLLECTION, {status:'approved'});
+      if (!result) return 'There are no mods yet';
+      return result;
+    } catch (error){
+      console.error('Failed to get mods',error);
+      throw new Error('Failed geting mods')
+    }
+  };
+  
   static async GetModById(id: string):Promise<IModResponse | null>{
     if (!ObjectId.isValid(id)) {
         throw new Error("Invalid mod ID format");
@@ -131,13 +142,27 @@ export class ModService {
       const mod = await this.GetModById(id);
       if (!mod) throw new Error('Mod not found');
 
-      const result = await mongoClient.ModifyOneDocument(
+      // Скачиваем файл с облачного хранилища
+      const result = await downloadFileFromCloud(mod.fileLink);
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to download file');
+      }
+
+      const updateResult = await mongoClient.ModifyOneDocument(
         this.MODS_COLLECTION,
-        { $set: { status: 'approved', is_moderated: true } },
+        { 
+          $set: { 
+            status: 'approved', 
+            is_moderated: true,
+            localFilePath: result.filePath,
+            isLocalState: true
+          } 
+        },
         { _id: new ObjectId(id) }
       );
 
-      if (result.modifiedCount > 0) {
+      if (updateResult.modifiedCount > 0) {
         await UserService.updateModStats(mod.userId.toString(), 'approved');
         return true;
       }
@@ -187,6 +212,43 @@ export class ModService {
     } catch (error) {
       console.error('Failed to get user mods', error);
       throw new Error('Failed getting user mods');
+    }
+  }
+  
+  static async GetCommentsByModId(modId: string){
+    if (!ObjectId.isValid(modId)) {
+      throw new Error("Invalid mod ID format");
+    }
+    try{
+      const result = await mongoClient.FindDocFieldsByFilter(this.COMMENTS_COLLECTION, {modId: modId});
+      console.log(result);
+      return result
+    } catch(error){
+      console.error('Failed to crete mod', error);
+      throw new Error('Failed to crete mod');
+    }
+  }
+  
+  static async CreateComments(data: ICommentsRequest){
+    if (!ObjectId.isValid(data.modId) || !ObjectId.isValid(data.userId)) {
+      throw new Error("Invalid user ID format");
+    }
+    try{
+      const user = UserService.getUserById(data.userId);
+      if (!user){
+        throw new Error('Failure the user does not exist ');
+      }
+      const commentDocument = {
+        modId: data.modId,
+        userId: data.userId,
+        content: data.content,
+        createAt: new Date()
+      }
+      const result = await mongoClient.InsertDocumentWithIndex(this.COMMENTS_COLLECTION, commentDocument);
+      console.log(result);
+    } catch(error){
+      console.error('Failed to crete mod', error);
+      throw new Error('Failed to crete mod');
     }
   }
 }

@@ -1,4 +1,3 @@
-// Для публичного просмотра подписок
 export interface IPublicSubscription {
   id: string;
   name: string;
@@ -7,7 +6,14 @@ export interface IPublicSubscription {
   level: 'basic' | 'medium' | 'premium';
   logo: string;
   features: string[];
-  durationDays: number; // Продолжительность подписки в днях
+  durationDays: number;
+  allowedCategories: string[];
+  isActive: boolean;
+}
+
+export interface IAdminSubscription extends IPublicSubscription {
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export interface IAdminSubscriptionRequest {
@@ -19,12 +25,23 @@ export interface IAdminSubscriptionRequest {
   features: string[];
   durationDays: number;
   allowedCategories: string[];
+  isActive: boolean;
 }
 
-// Для админки (расширенный вариант)
-export interface IAdminSubscription extends IPublicSubscription {
+export interface IUserSubscription {
+  id: string;
+  userId: string;
+  subscriptionId: string;
+  subscription: IPublicSubscription;
+  startDate: Date;
+  endDate: Date;
   isActive: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-  allowedCategories: string[]; // ID разрешенных категорий
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface IUserSubscriptionRequest {
+  userId: string;
+  subscriptionId: string;
+  durationDays?: number;
 }

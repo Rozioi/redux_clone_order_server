@@ -31,7 +31,6 @@ export class CategoryService {
       throw new Error('Failed to create category');
     }
   }
-
   static async getAllCategories(): Promise<ICategory[]> {
     try {
       

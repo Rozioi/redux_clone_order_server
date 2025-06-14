@@ -1,9 +1,21 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { IAdmin } from '../interface/admin.interface';
+
 export const permissions = {
-  highAdmin: ['manageUsers', 'manageCategories', 'approveMods', 'viewAll'],
-  lowAdmin: ['manageCategories', 'approveMods', 'viewAll'],
-  moderator: ['approveMods'],
+  highAdmin: [
+    'manageUsers',
+    'manageCategories',
+    'approveMods',
+    'viewAll'
+  ],
+  lowAdmin: [
+    'manageCategories',
+    'approveMods',
+    'viewAll'
+  ],
+  moderator: [
+    'approveMods'
+  ],
 } as const;
 
 export type Permission = (typeof permissions)[keyof typeof permissions][number];
@@ -27,13 +39,13 @@ export function checkPermission(options: PermissionOptions) {
     }
 
     if (admin.role === 'moderator' && options.categoryIdParam) {
-      const categoryId = String(request.params?.[options.categoryIdParam]);
+      const params = request.params as Record<string, string>;
+      const categoryId = params[options.categoryIdParam];
       if (!admin.allowedCategoryIds?.includes(categoryId)) {
         return reply.status(403).send({ message: 'Forbidden: no access to this category' });
       }
     }
 
-    // Всё ок — продолжаем выполнение запроса
     return;
   };
 }

@@ -67,6 +67,19 @@ export class UserService {
             throw new Error('Failed getting user');
         }
     }
+    static async getUserByUsername(username: string): Promise<IUserResponse | null> {
+        try {
+            const [result] = await mongoClient.FindDocFieldsByFilter(
+                this.USERS_COLLECTION,
+                { username:username },
+                { password_hash: 0 }
+            );
+            return result || null;
+        } catch (error) {
+            console.error('Failed to get user', error);
+            throw new Error('Failed getting user');
+        }
+    }
 
     static async getUserByEmail(email: string): Promise<IUser | null> {
         try {
@@ -134,6 +147,21 @@ export class UserService {
 
     static async createUser(data: IUserRequest): Promise<string> {
         try {
+                  const existingUserByUsername = await mongoClient.FindDocFieldsByFilter(
+                      this.USERS_COLLECTION,
+                      { username: data.username }
+                  );
+                  if (existingUserByUsername[0]) {
+                      throw new Error('Пользователь с таким именем уже существует');
+                  }
+          
+                  const existingUserByEmail = await mongoClient.FindDocFieldsByFilter(
+                      this.USERS_COLLECTION,
+                      { email: data.email }
+                  );
+                  if (existingUserByEmail[0]) {
+                      throw new Error('Пользователь с такой почтой уже существует');
+                  }
             const hashedPassword = await bcrypt.hash(data.password, this.SALT_ROUNDS);
     
             const userDocument: Omit<IUser, '_id'> = {
@@ -141,7 +169,7 @@ export class UserService {
                 password_hash: hashedPassword,
                 email: data.email,
                 isActive: true,
-                role: 'user',
+                role: data.role || 'user',
                 last_login: null,
                 createdAt: new Date()
             };

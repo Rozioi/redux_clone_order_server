@@ -1,6 +1,6 @@
 import { FastifyReply } from "fastify/types/reply";
 import { FastifyRequest } from "fastify/types/request";
-import { IModRequest } from "../interface/mod.interface";
+import { ICommentsRequest, IModRequest } from "../interface/mod.interface";
 import { ModService } from "../services/mod.service";
 import { mongoClient } from "../app";
 import { ObjectId } from "mongodb";
@@ -73,6 +73,16 @@ export const ModController = {
       return reply.status(500).send({ error: err });
     }
   },
+  async GetAllModsForUser(req: FastifyRequest, reply: FastifyReply) {
+    try {
+      const result = await ModService.GetAllModsForUser();
+      if (!result) return reply.status(404).send('There are no mods yet');
+      return reply.status(200).send(result);
+    } catch (error: unknown) {
+      const err = error as Error;
+      return reply.status(500).send({ error: err });
+    }
+  },
   async GetSearchModsCat(req: FastifyRequest<{ Querystring: IQuery }>, reply: FastifyReply) {
     const { category, subcategory } = req.query;
     try {
@@ -106,6 +116,19 @@ export const ModController = {
       return reply.status(500).send({ error: err });
     }
   },
+  async GetModByUserId(req:FastifyRequest<{Params: {id:string}}>, reply: FastifyReply){
+    const { id } = req.params;
+    try{
+      if (!id) return reply.status(400).send('Invalid user id');
+      const result = await mongoClient.FindDocFieldsByFilter('mods', { userId: new ObjectId(id) });
+      if (!result) return reply.status(404).send('Mods not found');
+      
+      return reply.status(200).send(result);
+    } catch(error){
+      const err = error as Error;
+      return reply.status(500).send({ error: err });
+    }
+  },
   async GetModsById(req: FastifyRequest<{ Params: { id: string }}>, reply: FastifyReply){
     const { id } = req.params;
     try{
@@ -126,6 +149,27 @@ export const ModController = {
       const result = await ModService.DeleteModById(modId, userId);
       if (!result) return reply.status(404).send('Invalid to delete mod')
       
+    } catch(error){
+      
+      const err = error as Error;
+      return reply.status(500).send({ error: err });
+    }
+  },
+  async GetCommentsByModId(req:FastifyRequest<{Params: {modId:string}}>, reply: FastifyReply){
+    const { modId } = req.params;
+    try{
+      if (!modId) return reply.status(400).send('Invalid mod ID');
+      const result = await ModService.GetCommentsByModId(modId);
+      return reply.status(200).send(result);
+    }catch(error){
+      const err = error as Error;
+      return reply.status(500).send({ error: err });
+    }
+  },
+  async CreateComment(req:FastifyRequest<{Body: ICommentsRequest}>, reply:FastifyReply){
+    try{
+      const result = await ModService.CreateComments(req.body);
+      return reply.status(200).send(result);
     } catch(error){
       const err = error as Error;
       return reply.status(500).send({ error: err });

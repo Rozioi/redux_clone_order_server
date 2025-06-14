@@ -15,16 +15,46 @@ export class MongoDbClient {
 	private db!: Db;
 	private client!: MongoClient;
 
-	async connect(conn: ConnectionConfig, onSuccess: () => void | unknown | any, onFailure: (error: any) => void): Promise<void> {
+	constructor(config: ConnectionConfig) {
+		this.client = new MongoClient(config.url);
+		this.db = this.client.db(config.dbName);
+	}
+
+	async connect(onSuccess: () => void | unknown | any, onFailure: (error: any) => void): Promise<void> {
 		try {
-			this.client = new MongoClient(conn.url, {});
 			await this.client.connect();
-			this.db = this.client.db(conn.dbName);
-			console.info("MongoClient Connection successful");
+			this.db = this.client.db(this.db.databaseName);
+			console.info("Connected to MongoDB");
+
+			// Создаем индексы для оптимизации поиска
+			await this.createIndexes();
+
 			onSuccess();
 		} catch (ex) {
-			console.error("Error caught: ", ex);
+			console.error("MongoDB connection error:", ex);
 			onFailure(ex);
+		}
+	}
+
+	private async createIndexes() {
+		try {
+			// Индекс для платежей
+			await this.db.collection('payments').createIndexes([
+				{ key: { paymentId: 1 }, unique: true },
+				{ key: { userId: 1 } },
+				{ key: { status: 1 } }
+			]);
+
+			// Индекс для подписок пользователей
+			await this.db.collection('user_subscriptions').createIndexes([
+				{ key: { userId: 1 }, unique: true },
+				{ key: { isActive: 1 } }
+			]);
+
+			console.log("MongoDB indexes created successfully");
+		} catch (ex) {
+			console.error("Error creating indexes:", ex);
+			throw ex;
 		}
 	}
 
@@ -64,8 +94,7 @@ export class MongoDbClient {
 			{ $inc: { seq: 1 } },
 			{ projection: { seq: 1 }, upsert: true, returnDocument: "after", session }
 		);
-}
-
+	}
 
 	async InsertDocumentWithIndex(coll: string, doc: Record<string, any>, session?: ClientSession): Promise<any> {
 		if (!isObject(doc)) {
@@ -74,25 +103,27 @@ export class MongoDbClient {
 		const index = await this.GetNextSequence(coll, session);
 		doc.idx = index.seq;
 		return this.db.collection(coll).insertOne(doc, { session });
-}
-
-	async startSession(): Promise<ClientSession>{
- if (!this.client) {
-        throw new Error("MongoDB client is not connected");
-    }
-	return this.client.startSession()
 	}
+
+	async startSession(): Promise<ClientSession> {
+		if (!this.client) {
+			throw new Error("MongoDB client is not connected");
+		}
+		return this.client.startSession();
+	}
+
 	async DeleteDocument(coll: string, query: object): Promise<any> {
 		if (!isObject(query)) {
 			throw new Error("MongoDbClient.DeleteDocument: query is not an object");
 		}
 		return this.db.collection(coll).deleteOne(query);
 	}
-	async DeleteManyDocument(coll:string, query:object):Promise<any>{
-	if (!isObject(query)) {
-		throw new Error("MongoDbClient.DeleteDocument: query is not an object");
-	}
-	return this.db.collection(coll).deleteMany(query);
+
+	async DeleteManyDocument(coll: string, query: object): Promise<any> {
+		if (!isObject(query)) {
+			throw new Error("MongoDbClient.DeleteDocument: query is not an object");
+		}
+		return this.db.collection(coll).deleteMany(query);
 	}
 
 	async ModifyOneDocument(coll: string, values: UpdateFilter<any>, query: object, option: object = {}) {

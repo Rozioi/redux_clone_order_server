@@ -40,7 +40,7 @@ export interface IModRequest {
   localPreviewPath?: string;
   localFilePath?: string;
   youtubeLink?: string;
-  categories?: string[]; 
+  categoryIds?: string[]; 
   size: string;
   isVisibleDiscord: boolean;
   discord: string;
@@ -54,3 +54,16 @@ export interface IModResponse extends IMod {
   _id: string;
   createdAt: string;
 } 
+
+export interface IComments {
+  _id: string;
+  modId: string;
+  userId: string;
+  content: string;
+  createdAt: Date;
+}
+export interface ICommentsRequest {
+  modId: string;
+  userId: string;
+  content: string;
+}

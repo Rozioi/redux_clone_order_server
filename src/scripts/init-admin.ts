@@ -2,13 +2,13 @@ import { mongoClient } from "../app";
 import { UserService } from "../services/user.service";
 import { PermissionService } from "../services/permission.service";
 import { config } from "../config/env";
-import { UserRole } from "../interface/permission.interface";
 import { ObjectId } from "mongodb";
+import { IAdmin, Role } from "../interface/admin.interface";
 import { hashPassword } from "../utils/hash";
 
 async function initializeAdmin() {
     try {
-        // Инициализируем подключение к базе данных
+        
         await mongoClient.connect(
             {
                 url: config.DATABASE_URL || "mongodb://localhost:27017",
@@ -28,7 +28,6 @@ async function initializeAdmin() {
         
         const existingAdmin = await UserService.getUserByEmail(adminEmail);
         console.log('Проверка существующего админа:', existingAdmin);
-        
         if (existingAdmin) {
             console.log('Администратор уже существует');
             await mongoClient.close();
@@ -37,29 +36,31 @@ async function initializeAdmin() {
 
         const adminData = {
             email: adminEmail,
-            name: 'System Administrator',
-            password_hash: adminPassword,
-            role: 'admin',
-            is_active: true,
-            created_at: new Date(),
-            updated_at: new Date()
+            username: 'Системный Администратор',
+            password: adminPassword,
+            role: 'admin' as const,
         };
 
-        const adminId = await UserService.createNewUser(adminData);
+        const adminId = await UserService.createUser(adminData);
         console.log('Администратор создан с ID:', adminId);
 
-        // Устанавливаем права администратора
-        const permissionData = {
-            userId: new ObjectId(adminId),
-            role: UserRole.ADMIN,
-            canManageUsers: true,
-            canManageCategories: true,
-            canModerateMods: true,
-            allowedCategories: []
-        };
-
-        await PermissionService.createPermission(permissionData);
-        console.log('Права администратора установлены');
+        const admin: IAdmin = {
+           name: adminData.username,
+           userId: new ObjectId(adminId),
+           role: 'highAdmin',
+           permissions: 
+           [ 'categories:manage', 'comments:delete', 
+             'mods:approve', 'mods:delete',
+             'mods:edit', 'mods:hide', 'notifications:send', 
+             'reports:view', 'reviews:moderate', 
+             'subscriptions:manage', 'users:assign_badge',
+             'users:ban', 'users:mute', 
+             'users:manage', 'advertisements:manage'
+           ]
+          
+        }
+      const result = await mongoClient.InsertDocumentWithIndex('admins', admin);
+      console.log('Admins created:', result)
 
         await mongoClient.close();
         console.log('Инициализация завершена успешно');

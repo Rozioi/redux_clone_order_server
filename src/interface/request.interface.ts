@@ -1,7 +1,7 @@
 import { FastifyRequest } from 'fastify';
 
 export interface AuthenticatedUser {
-  _id: string;
+  id: string;
   email: string;
   role: string;
   iat: number;

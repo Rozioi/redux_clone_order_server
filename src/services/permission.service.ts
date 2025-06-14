@@ -1,167 +1,62 @@
 import { ObjectId } from "mongodb";
-import { IUserPermission, IUserPermissionRequest, UserRole, PermissionType } from "../interface/permission.interface";
+
 import { mongoClient } from "../app";
+import { IAdmin, PermissionKey } from "../interface/admin.interface";
+
 
 export class PermissionService {
-  private static readonly PERMISSIONS_COLLECTION = 'permissions';
+  private static readonly ADMIN_COLLECTION = 'admins';
 
-  static async createPermission(data: Omit<IUserPermission, '_id' | 'createdAt' | 'updatedAt'>): Promise<string> {
+  /**
+   * Проверяет право администратора
+   * @param userId ID пользователя (админа)
+   * @param permissionKey Проверяемое право
+   */
+  static async hasPermission(userId: ObjectId | string, permissionKey: PermissionKey): Promise<boolean> {
     try {
-      const permissionDocument = {
-        ...data,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-
-      const result = await mongoClient.InsertDocumentWithIndex(
-        this.PERMISSIONS_COLLECTION,
-        permissionDocument
-      );
-
-      return result.insertedId.toString();
-    } catch (error) {
-      console.error('Failed to create permission', error);
-      throw new Error('Failed creating permission');
-    }
-  }
-
-  static async getUserPermissions(userId: string): Promise<IUserPermission | null> {
-    if (!ObjectId.isValid(userId)) {
-      throw new Error("Invalid user ID format");
-    }
-    try {
-      return await mongoClient.FindDocFieldsByFilter(
-        this.PERMISSIONS_COLLECTION,
+      const admins = await mongoClient.FindDocFieldsByFilter(
+        this.ADMIN_COLLECTION,
         { userId: new ObjectId(userId) }
-      );
+      ) ;
+      const admin = admins[0];
+      if (!admin) return false;
+      return admin.permissions.includes(permissionKey);
     } catch (error) {
-      console.error('Failed to get user permissions', error);
-      throw new Error('Failed getting user permissions');
+      console.error('Permission check error:', error);
+      return false;
     }
   }
 
-  static async updateUserPermissions(
-    userId: string,
-    permissions: Partial<Omit<IUserPermission, '_id' | 'userId' | 'createdAt' | 'updatedAt'>>
+  /**
+   * Проверка прав с учетом категорий (если нужно)
+   * @param userId ID админа
+   * @param permissionKey Право
+   * @param categoryId Опциональная проверка категории
+   */
+  static async hasCategoryPermission(
+    userId: ObjectId | string,
+    permissionKey: PermissionKey,
+    categoryId?: string
   ): Promise<boolean> {
-    if (!ObjectId.isValid(userId)) {
-      throw new Error("Invalid user ID format");
-    }
     try {
-      const updateData = {
-        ...permissions,
-        updatedAt: new Date()
-      };
-
-      const result = await mongoClient.ModifyOneDocument(
-        this.PERMISSIONS_COLLECTION,
-        { $set: updateData },
+      const admin = await mongoClient.FindDocFieldsByFilter(
+        this.ADMIN_COLLECTION,
         { userId: new ObjectId(userId) }
-      );
+      ) as IAdmin | null;
 
-      return result.modifiedCount > 0;
+      if (!admin) return false;
+
+      const hasPerm = admin.permissions.includes(permissionKey);
+      if (!hasPerm) return false;
+
+      // Если право не требует проверки категории
+      if (!categoryId || !admin.allowedCategoryIds) return true;
+
+      // Проверка доступа к категории
+      return admin.allowedCategoryIds.includes(categoryId);
     } catch (error) {
-      console.error('Failed to update user permissions', error);
-      throw new Error('Failed updating user permissions');
-    }
-  }
-
-  static async checkPermission(userId: string, permission: PermissionType): Promise<boolean> {
-    try {
-      const userPermissions = await this.getUserPermissions(userId);
-      if (!userPermissions) return false;
-
-      return userPermissions[permission] === true;
-    } catch (error) {
-      console.error('Failed to check permission', error);
+      console.error('Category permission check error:', error);
       return false;
     }
   }
-
-  static async hasAccessToCategory(userId: string, categoryId: string): Promise<boolean> {
-    try {
-      const [userPermissions] = await mongoClient.FindDocFieldsByFilter(
-        this.PERMISSIONS_COLLECTION,
-        { userId: new ObjectId(userId) },
-        {},
-        1
-      );
-
-      if (!userPermissions) {
-        return false;
-      }
-
-      // Админ имеет доступ ко всем категориям
-      if (userPermissions.role === 'admin') {
-        return true;
-      }
-
-      // Модератор имеет доступ только к назначенным категориям
-      if (userPermissions.role === 'moderator') {
-        return userPermissions.assignedCategories?.some(
-          (id: ObjectId) => id.toString() === categoryId
-        ) || false;
-      }
-
-      // Обычный пользователь имеет доступ только к публичным категориям
-      return true;
-    } catch (error) {
-      console.error('Error checking category access:', error);
-      return false;
-    }
-  }
-
-  // Новые методы для работы с модераторами категорий
-  static async assignModeratorToCategory(userId: string, categoryId: string): Promise<boolean> {
-    try {
-      const result = await mongoClient.ModifyOneDocument(
-        this.PERMISSIONS_COLLECTION,
-        {
-          $addToSet: { assignedCategories: new ObjectId(categoryId) }
-        },
-        { userId: new ObjectId(userId) }
-      );
-
-      return result.modifiedCount === 1;
-    } catch (error) {
-      console.error('Failed to assign moderator to category:', error);
-      throw new Error('Failed to assign moderator to category');
-    }
-  }
-
-  static async removeModeratorFromCategory(userId: string, categoryId: string): Promise<boolean> {
-    try {
-      // Сначала получаем текущие права
-      const [permissions] = await mongoClient.FindDocFieldsByFilter(
-        this.PERMISSIONS_COLLECTION,
-        { userId: new ObjectId(userId) },
-        { assignedCategories: 1 }
-      );
-
-      if (!permissions || !permissions.assignedCategories) {
-        return false;
-      }
-
-      // Фильтруем категории, исключая удаляемую
-      const updatedCategories = permissions.assignedCategories.filter(
-        (id: ObjectId) => id.toString() !== categoryId
-      );
-
-      // Обновляем документ
-      const result = await mongoClient.ModifyOneDocument(
-        this.PERMISSIONS_COLLECTION,
-        {
-          $set: { 
-            assignedCategories: updatedCategories
-          }
-        },
-        { userId: new ObjectId(userId) }
-      );
-
-      return result.modifiedCount === 1;
-    } catch (error) {
-      console.error('Failed to remove moderator from category:', error);
-      throw new Error('Failed to remove moderator from category');
-    }
-  }
-} 
+}
