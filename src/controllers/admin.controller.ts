@@ -13,7 +13,6 @@ import { AuthenticatedUser } from "../interface/request.interface";
 import bcrypt from "bcrypt";
 import { IAdmin } from "../interface/admin.interface";
 import { isValid } from "zod";
-import { IUserBadgeResponse } from "../interface/user.interface";
 
 interface CategoryParams {
   id: string;
@@ -46,38 +45,6 @@ interface CategoryParams {
 }
 
 export const adminController = {
-  async giveBadge(
-    req: FastifyRequest<{ 
-      Body: {
-        userID: string;
-        badge: string;
-        badgeType?: 'role' | 'status' | 'custom';
-        cssClass?: string;
-      } 
-    }>, 
-    reply: FastifyReply
-  ) {
-    try {
-      const adminId = (req.user as { id: string }).id;
-      console.log(adminId);
-      const badgeData: IUserBadgeResponse = {
-        userID: req.body.userID,
-        badge: req.body.badge,
-        badgeType: req.body.badgeType || 'status', 
-        cssClass: req.body.cssClass
-      };
-  
-      const result = await AdminService.giveBadge(badgeData, adminId);
-      
-      reply.status(result.success ? 200 : 400).send(result);
-    } catch (error) {
-      req.log.error(error);
-      reply.status(500).send({
-        success: false,
-        message: 'Internal server error'
-      });
-    }
-  },
   // async loginAdmin(
   //   req: FastifyRequest<{ Body: { email: string; password: string } }>,
   //   reply: FastifyReply
@@ -245,6 +212,21 @@ export const adminController = {
       return reply.status(500).send({ message: 'Failed to get categories' });
     }
   },
+  async getCategoryById(
+    req: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply
+  ) {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return reply.status(400).send({ error: "Invalid user ID" });
+    }
+    try {
+      const categories = await CategoryService.getCategoryById(id);
+      return reply.send(categories);
+    } catch (error) {
+      return reply.status(500).send({ message: 'Failed to get categories' });
+    }
+  },
   // async updateCategory(
   //   req: FastifyRequest<{ Params: CategoryParams; Body: Partial<ICategoryRequest> }>,
   //   reply: FastifyReply
@@ -318,20 +300,20 @@ export const adminController = {
     }
   },
 
-  async approveMod(
-    req: FastifyRequest<{ Params: {id:string} }>,
-    reply: FastifyReply
-  ) {
-    try {
-      const success = await ModService.approveMod(req.params.id);
-      if (success) {
-        return reply.send({ message: 'Mod approved successfully' });
-      }
-      return reply.status(404).send({ message: 'Mod not found' });
-    } catch (error) {
-      return reply.status(500).send({ message: 'Failed to approve mod' });
-    }
-  },
+  // async approveMod(
+  //   req: FastifyRequest<{ Params: ModParams }>,
+  //   reply: FastifyReply
+  // ) {
+  //   try {
+  //     const success = await ModService.approveMod(req.params.id);
+  //     if (success) {
+  //       return reply.send({ message: 'Mod approved successfully' });
+  //     }
+  //     return reply.status(404).send({ message: 'Mod not found' });
+  //   } catch (error) {
+  //     return reply.status(500).send({ message: 'Failed to approve mod' });
+  //   }
+  // },
 
   // async rejectMod(
   //   req: FastifyRequest<{ Params: ModParams }>,

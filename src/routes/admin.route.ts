@@ -5,11 +5,6 @@ import { checkPermission } from "../middleware/permission.middleware";
 import { ICategoryRequest } from "../interface/category.interface";
 import { AuthenticatedUser } from "../interface/request.interface";
 import { subscriptionController } from "../controllers/subscription.controller";
-import { IAdminSubscriptionRequest, IUserSubscriptionRequest } from "../interface/subscription.interface";
-import { UserService } from "../services/user.service";
-import { userController } from "../controllers/user.controller";
-import { mongoClient } from "../app";
-import { ObjectId } from "mongodb";
 
 interface CategoryParams {
   id: string;
@@ -34,16 +29,13 @@ export const AdminRoutes: TRouteFunction = (fastify: FastifyInstance, _opts, don
   // fastify.post('/admin/verify', adminController.verifyAdminLogin);
 
   // // Категории
-  // fastify.post<AuthenticatedRouteGeneric & { Body: ICategoryRequest }>('/categories', {
-  //   preHandler: []
-  // }, adminController.createCategory);
-  
-  // fastify.get('/category/:id', adminController.getCategoryById as any);
+  fastify.post<AuthenticatedRouteGeneric & { Body: ICategoryRequest }>('/categories', {
+    preHandler: [
+    ]
+  }, adminController.createCategory);
 
-  fastify.get('/admin/users', async (req,reply) => {
-    const res = await mongoClient.FindDocFieldsByFilter('users', {});
-    return reply.status(200).send(res);
-  });
+  fastify.get('/categories', adminController.getAllCategories as any);
+  fastify.get('/category/:id', adminController.getCategoryById  as any)
 
   // fastify.put<AuthenticatedRouteGeneric & { 
   //   Params: CategoryParams;
@@ -92,13 +84,14 @@ export const AdminRoutes: TRouteFunction = (fastify: FastifyInstance, _opts, don
   //   ]
   // }, adminController.getPendingMods as any);
 
-  fastify.patch<AuthenticatedRouteGeneric & {
-    Params: {id: string};
-  }>('/admin/mods/:id/approve', {
-    preHandler: [
-      fastify.verifyJWT as preHandlerHookHandler,
-    ]
-  }, adminController.approveMod as any);
+  // fastify.post<AuthenticatedRouteGeneric & {
+  //   Params: ModParams;
+  // }>('/mods/:id/approve', {
+  //   preHandler: [
+  //     fastify.verifyJWT as preHandlerHookHandler,
+  //     checkPermission('canModerateMods') as preHandlerHookHandler
+  //   ]
+  // }, adminController.approveMod as any);
 
   // fastify.post<AuthenticatedRouteGeneric & {
   //   Params: ModParams;
@@ -130,118 +123,47 @@ export const AdminRoutes: TRouteFunction = (fastify: FastifyInstance, _opts, don
   //   ]
   // }, adminController.updateUserRole as any);
 
-  // Subscription routes
-  fastify.post<AuthenticatedRouteGeneric & { Body: IAdminSubscriptionRequest }>('/subscriptions', {
-    preHandler: [
-      fastify.verifyJWT as preHandlerHookHandler,
-      
-    ]
-  }, subscriptionController.createSubscription as any);
+  // // Subscription routes
+  // fastify.post('/subscriptions', {
+  //   preHandler: [
+  //     fastify.verifyJWT as preHandlerHookHandler,
+  //     checkPermission('canManageSubscriptions') as preHandlerHookHandler
+  //   ]
+  // },
+  // subscriptionController.createSubscription as any
+  // );
 
-  fastify.get<AuthenticatedRouteGeneric>('/subscriptions', {
-    preHandler: [
-      // fastify.verifyJWT as preHandlerHookHandler,
-     
-    ]
-  }, subscriptionController.getAllSubscriptions as any);
+  // // fastify.get<AuthenticatedRouteGeneric>('/subscriptions', {
+  // //   preHandler: [
+  // //     fastify.verifyJWT as preHandlerHookHandler,
+  // //     checkPermission('canManageSubscriptions') as preHandlerHookHandler
+  // //   ],
+  // //   handler: SubscriptionController.GetAllSubscriptions as any
+  // // });
 
-  fastify.get<AuthenticatedRouteGeneric & { Params: { id: string } }>('/subscriptions/:id', {
-    preHandler: [
-      fastify.verifyJWT as preHandlerHookHandler,
-     
-    ]
-  }, subscriptionController.getSubscriptionById as any);
+  // // fastify.get<AuthenticatedRouteGeneric & { Params: { id: string } }>('/subscriptions/:id', {
+  // //   preHandler: [
+  // //     fastify.verifyJWT as preHandlerHookHandler,
+  // //     checkPermission('canManageSubscriptions') as preHandlerHookHandler
+  // //   ],
+  // //   handler: SubscriptionController.GetSubscriptionById as any
+  // // });
 
-  fastify.put<AuthenticatedRouteGeneric & { 
-    Params: { id: string };
-    Body: Partial<IAdminSubscriptionRequest>;
-  }>('/subscriptions/:id', {
-    preHandler: [
-      fastify.verifyJWT as preHandlerHookHandler,
-    ]
-  }, async (req, reply) => {
-    try {
-      const { id } = req.params;
-      const updateData = req.body;
+  // // fastify.put<AuthenticatedRouteGeneric & { Params: { id: string } }>('/subscriptions/:id', {
+  // //   preHandler: [
+  // //     fastify.verifyJWT as preHandlerHookHandler,
+  // //     checkPermission('canManageSubscriptions') as preHandlerHookHandler
+  // //   ],
+  // //   handler: SubscriptionController.UpdateSubscription as any
+  // // });
 
-      // Обновляем подписку в базе данных
-      const result = await mongoClient.FindOneAndUpdate(
-        'subscriptions',
-        { _id: new ObjectId(id) },
-        { 
-          
-            ...updateData,
-            updatedAt: new Date()
-          
-        }
-      );
-
-      if (result.modifiedCount === 0) {
-        return reply.status(404).send({ error: 'Подписка не найдена' });
-      }  
-
-      // Получаем обновленную подписку
-      const updatedSubscription = await mongoClient.FindDocFieldsByFilter('subscriptions', { _id: new ObjectId(id) });
-      return reply.send({ data: updatedSubscription });
-    } catch (error) {
-      console.error('Error updating subscription:', error);
-      return reply.status(500).send({ error: 'Ошибка при обновлении подписки' });
-    }
-  });
-
-  fastify.delete<AuthenticatedRouteGeneric & { Params: { id: string } }>('/subscriptions/:id', {
-    preHandler: [
-      fastify.verifyJWT as preHandlerHookHandler,
-     
-    ]
-  }, subscriptionController.deleteSubscription as any);
-
-  // Публичный маршрут для получения активных подписок
-  fastify.get('/public/subscriptions', subscriptionController.getActiveSubscriptions as any);
-
-  fastify.post<AuthenticatedRouteGeneric & {Body: {
-          userId: string;
-          badge: string;
-          badgeType?: string;
-          cssClass?: string;
-        } 
-      }>('/admin/badge', {preHandler:[ fastify.verifyJWT as preHandlerHookHandler], handler: adminController.giveBadge as any})
-
-  // Маршруты для управления подписками пользователей
-  fastify.post<AuthenticatedRouteGeneric & { Body: IUserSubscriptionRequest }>('/user-subscriptions', {
-    preHandler: [
-      fastify.verifyJWT as preHandlerHookHandler
-    ]
-  }, subscriptionController.createUserSubscription as any);
-
-  fastify.get<AuthenticatedRouteGeneric & { Params: { userId: string } }>('/user-subscriptions/:userId/active', {
-    preHandler: [
-      fastify.verifyJWT as preHandlerHookHandler
-    ]
-  }, subscriptionController.getUserActiveSubscription as any);
-
-  fastify.get<AuthenticatedRouteGeneric & { Params: { userId: string } }>('/user-subscriptions/:userId', {
-    preHandler: [
-      fastify.verifyJWT as preHandlerHookHandler
-    ]
-  }, subscriptionController.getUserSubscriptions as any);
-
-  fastify.post<AuthenticatedRouteGeneric & {
-    Params: { userId: string; subscriptionId: string };
-    Body: { durationDays: number };
-  }>('/user-subscriptions/:userId/:subscriptionId/extend', {
-    preHandler: [
-      fastify.verifyJWT as preHandlerHookHandler
-    ]
-  }, subscriptionController.extendUserSubscription as any);
-
-  fastify.post<AuthenticatedRouteGeneric & {
-    Params: { userId: string; subscriptionId: string };
-  }>('/user-subscriptions/:userId/:subscriptionId/cancel', {
-    preHandler: [
-      fastify.verifyJWT as preHandlerHookHandler
-    ]
-  }, subscriptionController.cancelUserSubscription as any);
+  // // fastify.delete<AuthenticatedRouteGeneric & { Params: { id: string } }>('/subscriptions/:id', {
+  // //   preHandler: [
+  // //     fastify.verifyJWT as preHandlerHookHandler,
+  // //     checkPermission('canManageSubscriptions') as preHandlerHookHandler
+  // //   ],
+  // //   handler: SubscriptionController.DeleteSubscription as any
+  // // });
 
   done();
 };
